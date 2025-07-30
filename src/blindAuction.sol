@@ -30,7 +30,9 @@ contract blindAuction is Ownable {
     error tooEarly();
     error tooLate();
     error invalidDeposit();
-    error lengthMismatch();
+    error valueLengthMismatch();
+    error fakeLengthMismatch();
+    error secretLengthMismatch();
     error auctionStillOngoing();
 
     constructor(address payable _beneficiary) Ownable(_beneficiary) {
@@ -49,6 +51,10 @@ contract blindAuction is Ownable {
         );
     }
 
+    function getBidLength(address _bidder) public view returns (uint256) {
+        return bids[_bidder].length;
+    }
+
     function revealBid(
         uint256[] calldata value,
         bool[] calldata fake,
@@ -59,9 +65,9 @@ contract blindAuction is Ownable {
 
         uint256 length = bids[msg.sender].length;
 
-        if (value.length != length) revert lengthMismatch();
-        if (fake.length != length) revert lengthMismatch();
-        if (secret.length != length) revert lengthMismatch();
+        if (value.length != length) revert valueLengthMismatch();
+        if (fake.length != length) revert fakeLengthMismatch();
+        if (secret.length != length) revert secretLengthMismatch();
 
         for (uint i = 0; i < length; i++) {
             Bid storage bidToReveal = bids[msg.sender][i];
@@ -82,6 +88,15 @@ contract blindAuction is Ownable {
 
                     highestBid = value[i];
                     highestBidder = msg.sender;
+
+                    uint256 refund;
+
+                    if (refund >= value[i]) {
+                        refund -= value[i];
+                        pendingReturns[msg.sender] += refund;
+                    } else {
+                        refund = 0;
+                    }
                 }
 
                 bids[msg.sender] = revealedBid[msg.sender];
@@ -92,14 +107,23 @@ contract blindAuction is Ownable {
 
     function withdraw() external {
         if (block.timestamp < revealEndTime) revert auctionStillOngoing();
-        if (ended) revert tooEarly();
 
+        ended = true;
         uint256 amount = pendingReturns[msg.sender];
 
         amount = 0;
 
         (bool success, ) = msg.sender.call{value: amount}("");
 
+        require(success, "Transaction failed");
+    }
+
+    function auctionEnd() external onlyOwner {
+        if (!ended) revert auctionStillOngoing();
+
+        ended = true;
+
+        (bool success, ) = beneficiary.call{value: highestBid}("");
         require(success, "Transaction failed");
     }
 }

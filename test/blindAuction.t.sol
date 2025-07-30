@@ -98,11 +98,11 @@ contract testBlindAuction is Test {
         auction.revealBid(values, fakes, secrets);
     }
 
-    function test_expectRevertRevealFUntionTooLate() public {
+    function test_expectRevertRevealFuntionTooLate() public {
         vm.deal(bidder2, 20 ether);
         vm.prank(bidder2);
 
-        uint256 value = 10 ether;
+        uint256 value = 7 ether;
         bool fake = false;
         bytes32 secret = keccak256(abi.encodePacked("mySecret"));
 
@@ -121,5 +121,45 @@ contract testBlindAuction is Test {
         vm.warp(2 days);
         vm.expectRevert(blindAuction.tooLate.selector);
         auction.revealBid(values, fakes, secrets);
+    }
+
+    function test_withdrawPendingReturns() public {
+        vm.deal(bidder1, 20 ether);
+        vm.prank(bidder1);
+
+        uint256 value = 10 ether;
+        bool fake = false;
+        bytes32 secret = keccak256(abi.encodePacked("mySecret"));
+
+        bytes32 blindedBid = keccak256(abi.encodePacked(value, fake, secret));
+
+        auction.bid{value: 15 ether}(blindedBid);
+
+        uint256[] memory values = new uint256[](1);
+        bool[] memory fakes = new bool[](1);
+        bytes32[] memory secrets = new bytes32[](1);
+
+        values[0] = value;
+        fakes[0] = fake;
+        secrets[0] = secret;
+
+        vm.warp(auction.auctionEndTime() + 1);
+        vm.prank(bidder1);
+        auction.revealBid(values, fakes, secrets);
+
+        vm.warp(auction.revealEndTime() + 1);
+
+        uint256 initialBalance = bidder1.balance;
+        console.log(initialBalance);
+        vm.prank(bidder1);
+        auction.withdraw();
+        uint256 finalBalance = bidder1.balance;
+        console.log(finalBalance);
+
+        assertEq(
+            finalBalance,
+            initialBalance,
+            "Bidder should withdraw their pending returns"
+        );
     }
 }
