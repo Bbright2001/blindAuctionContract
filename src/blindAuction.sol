@@ -82,27 +82,18 @@ contract blindAuction is Ownable {
                 if (!fake[i] && value[i] > highestBid) {
                     if (highestBidder != address(0)) {
                         pendingReturns[
-                            address(uint160(msg.sender))
+                            address(uint160(highestBidder))
                         ] += highestBid;
                     }
 
                     highestBid = value[i];
                     highestBidder = msg.sender;
-
-                    uint256 refund;
-
-                    if (refund >= value[i]) {
-                        refund -= value[i];
-                        pendingReturns[msg.sender] += refund;
-                    } else {
-                        refund = 0;
-                    }
                 }
-
+                bidToReveal.blindedBid = bytes32(0);
                 bids[msg.sender] = revealedBid[msg.sender];
             }
-            emit bidRevealed(msg.sender, highestBid);
         }
+        emit bidRevealed(msg.sender, highestBid);
     }
 
     function withdraw() external {
@@ -111,7 +102,9 @@ contract blindAuction is Ownable {
         ended = true;
         uint256 amount = pendingReturns[msg.sender];
 
-        amount = 0;
+        if (amount > 0) {
+            pendingReturns[msg.sender] = 0;
+        }
 
         (bool success, ) = msg.sender.call{value: amount}("");
 

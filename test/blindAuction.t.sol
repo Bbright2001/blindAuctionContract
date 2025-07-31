@@ -125,15 +125,23 @@ contract testBlindAuction is Test {
 
     function test_withdrawPendingReturns() public {
         vm.deal(bidder1, 20 ether);
-        vm.prank(bidder1);
+        vm.deal(bidder2, 20 ether);
 
+        vm.prank(bidder1);
         uint256 value = 10 ether;
         bool fake = false;
         bytes32 secret = keccak256(abi.encodePacked("mySecret"));
-
         bytes32 blindedBid = keccak256(abi.encodePacked(value, fake, secret));
+        auction.bid{value: 10 ether}(blindedBid);
 
-        auction.bid{value: 15 ether}(blindedBid);
+        vm.prank(bidder2);
+        uint256 value2 = 12 ether;
+        bool fake2 = false;
+        bytes32 secret2 = keccak256(abi.encodePacked("rivalSecret"));
+        bytes32 blindedBid2 = keccak256(
+            abi.encodePacked(value2, fake2, secret2)
+        );
+        auction.bid{value: 12 ether}(blindedBid2);
 
         uint256[] memory values = new uint256[](1);
         bool[] memory fakes = new bool[](1);
@@ -147,6 +155,12 @@ contract testBlindAuction is Test {
         vm.prank(bidder1);
         auction.revealBid(values, fakes, secrets);
 
+        values[0] = 12 ether;
+        fakes[0] = false;
+        secrets[0] = secret2;
+        vm.prank(bidder2);
+        auction.revealBid(values, fakes, secrets);
+
         vm.warp(auction.revealEndTime() + 1);
 
         uint256 initialBalance = bidder1.balance;
@@ -155,8 +169,7 @@ contract testBlindAuction is Test {
         auction.withdraw();
         uint256 finalBalance = bidder1.balance;
         console.log(finalBalance);
-
-        assertEq(
+        assertGt(
             finalBalance,
             initialBalance,
             "Bidder should withdraw their pending returns"

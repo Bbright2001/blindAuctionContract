@@ -32,3 +32,14 @@ what does this auction contract do????
     Causes: I was trying to subtract a smaller integer from  a bigger one
      i.e refun -= value[i];
      solution: I solved it by add a check to make sure that refund was greater or equal to value[i];
+ -  error: valueLengtheMismatch
+        CAUSE:  I didn't prank the bidder before making the revealed function call so the terminal was reading from address this instead of the  bidder
+        SOLUTION: I prank the bidder immediately before i made the reveal function call.
+## Breakdown of the reveal function
+
+ - takes in an array of value, fake, secret and stores them in the call data
+ - checks: checks if the function is called before the auction duration or after the reveal duration
+
+ - variable length = is the length of bids array of  msg.sender i.e the caller
+
+# Notes: value is the real bid amount
