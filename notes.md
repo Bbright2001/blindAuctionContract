@@ -43,3 +43,30 @@ what does this auction contract do????
  - variable length = is the length of bids array of  msg.sender i.e the caller
 
 # Notes: value is the real bid amount
+"
+ for (uint i = 0; i < length; i++)// loops through the caller bids {
+            Bid storage bidToReveal = bids[msg.sender][i];// access the bid at position i.
+
+            bytes32 calculatedHash = keccak256(
+                abi.encodePacked(value[i], fake[i], secret[i])
+            );// calculates the hash of the bid at position i
+
+            if (
+                calculatedHash == bidToReveal.blindedBid &&
+                bidToReveal.deposit >= MINIMUM_DEPOSIT
+            )//checks if the calculatedHash matches msg.sender hash and if amount deposit is valid  {
+
+                if (!fake[i] && value[i] > highestBid)// if fake is not true and the value at i is greater than the highest bidder {
+                    if (highestBidder != address(0)) {
+                        pendingReturns[
+                            address(uint160(highestBidder))
+                        ] += highestBid;// refund the previous highst bidder
+                    }
+
+                    highestBid = value[i];// update the highest bid
+                    highestBidder = msg.sender;// update the highest bidder
+                }
+
+                bids[msg.sender] = revealedBid[msg.sender]; save the bid array in then revealed bid array.
+            }
+        }

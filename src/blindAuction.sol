@@ -7,12 +7,15 @@ contract blindAuction is Ownable {
     struct Bid {
         uint256 deposit;
         bytes32 blindedBid;
+        bool revealed;
+        bool refunded;
     }
 
     uint256 public constant BIDDING_DURATION = 10 hours;
     uint256 public constant REVEAL_DURATION = 1 hours;
     uint256 public auctionEndTime;
     uint256 public revealEndTime;
+    uint256 public withdrawDeadline;
     uint256 public highestBid;
     address public highestBidder;
     bool public ended;
@@ -34,12 +37,16 @@ contract blindAuction is Ownable {
     error fakeLengthMismatch();
     error secretLengthMismatch();
     error auctionStillOngoing();
+    error tooEarlyToForceWithdrawal();
+    error refundFailed();
+    error cannotWithdrawAgain();
 
     constructor(address payable _beneficiary) Ownable(_beneficiary) {
         _transferOwnership(_beneficiary);
 
         auctionEndTime = block.timestamp + BIDDING_DURATION;
         revealEndTime = auctionEndTime + REVEAL_DURATION;
+        withdrawDeadline = revealEndTime + 1 days;
     }
 
     function bid(bytes32 _blindedBid) external payable {
@@ -47,7 +54,12 @@ contract blindAuction is Ownable {
         if (msg.value <= MINIMUM_DEPOSIT) revert invalidDeposit();
 
         bids[msg.sender].push(
-            Bid({blindedBid: _blindedBid, deposit: msg.value})
+            Bid({
+                blindedBid: _blindedBid,
+                deposit: msg.value,
+                revealed: false,
+                refunded: false
+            })
         );
     }
 
@@ -70,14 +82,14 @@ contract blindAuction is Ownable {
         if (secret.length != length) revert secretLengthMismatch();
 
         for (uint i = 0; i < length; i++) {
-            Bid storage bidToReveal = bids[msg.sender][i];
+            Bid[] storage bidToReveal = bids[msg.sender];
             bytes32 calculatedHash = keccak256(
                 abi.encodePacked(value[i], fake[i], secret[i])
             );
 
             if (
-                calculatedHash == bidToReveal.blindedBid &&
-                bidToReveal.deposit >= MINIMUM_DEPOSIT
+                calculatedHash == bidToReveal[i].blindedBid &&
+                bidToReveal[i].deposit >= MINIMUM_DEPOSIT
             ) {
                 if (!fake[i] && value[i] > highestBid) {
                     if (highestBidder != address(0)) {
@@ -89,7 +101,8 @@ contract blindAuction is Ownable {
                     highestBid = value[i];
                     highestBidder = msg.sender;
                 }
-                bidToReveal.blindedBid = bytes32(0);
+                bidToReveal[i].blindedBid = bytes32(0);
+                bidToReveal[i].revealed = true;
                 bids[msg.sender] = revealedBid[msg.sender];
             }
         }
@@ -100,6 +113,17 @@ contract blindAuction is Ownable {
         if (block.timestamp < revealEndTime) revert auctionStillOngoing();
 
         ended = true;
+        Bid[] storage bitToRefund = bids[msg.sender];
+        for (uint256 i = 0; i < bitToRefund.length; i++) {
+            if (
+                bitToRefund[i].revealed &&
+                bitToRefund[i].deposit > 0 &&
+                !bitToRefund[i].refunded
+            ) {
+                bitToRefund[i].revealed = true;
+                bitToRefund[i].deposit = 0;
+            }
+        }
         uint256 amount = pendingReturns[msg.sender];
 
         if (amount > 0) {
@@ -109,6 +133,30 @@ contract blindAuction is Ownable {
         (bool success, ) = msg.sender.call{value: amount}("");
 
         require(success, "Transaction failed");
+    }
+
+    function forceWithdrawalUnrevealedBids(address bidder) external {
+        if (block.timestamp < withdrawDeadline)
+            revert tooEarlyToForceWithdrawal();
+
+        Bid[] storage userBid = bids[bidder];
+        uint256 refund = 0;
+
+        for (uint256 i = 0; i < userBid.length; i++) {
+            if (
+                !userBid[i].revealed &&
+                userBid[i].deposit > 0 &&
+                !userBid[i].refunded
+            ) {
+                refund += userBid[i].deposit;
+                userBid[i].refunded = true;
+                userBid[i].deposit = 0;
+            }
+        }
+        if (refund > 0) {
+            (bool success, ) = msg.sender.call{value: refund}("");
+            if (!success) revert refundFailed();
+        }
     }
 
     function auctionEnd() external onlyOwner {

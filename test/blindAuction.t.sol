@@ -29,8 +29,7 @@ contract testBlindAuction is Test {
         bytes32 blindedBid = keccak256(abi.encodePacked(value, fake, secret));
 
         auction.bid{value: 5 ether}(blindedBid);
-        // Access the value field from the tuple (assuming bids returns array of (uint256 value, bytes32 blindedBid))
-        (uint256 deposit, ) = auction.bids(bidder1, 0);
+        (uint256 deposit, , , ) = auction.bids(bidder1, 0);
         assertEq(deposit, 5 ether, "Bid value should be 5 ether");
     }
 
@@ -155,24 +154,123 @@ contract testBlindAuction is Test {
         vm.prank(bidder1);
         auction.revealBid(values, fakes, secrets);
 
-        values[0] = 12 ether;
-        fakes[0] = false;
+        values[0] = value2;
+        fakes[0] = fake2;
         secrets[0] = secret2;
         vm.prank(bidder2);
         auction.revealBid(values, fakes, secrets);
-
         vm.warp(auction.revealEndTime() + 1);
 
         uint256 initialBalance = bidder1.balance;
-        console.log(initialBalance);
         vm.prank(bidder1);
         auction.withdraw();
         uint256 finalBalance = bidder1.balance;
-        console.log(finalBalance);
         assertGt(
             finalBalance,
             initialBalance,
             "Bidder should withdraw their pending returns"
+        );
+    }
+
+    function test_forceWithdrawalUnrevealedBids() public {
+        vm.deal(bidder1, 20 ether);
+
+        vm.prank(bidder1);
+        uint256 value = 10 ether;
+        bool fake = false;
+        bytes32 secret = keccak256(abi.encodePacked("mySecret"));
+        bytes32 blindedBid = keccak256(abi.encodePacked(value, fake, secret));
+
+        auction.bid{value: 10 ether}(blindedBid);
+        vm.warp(auction.auctionEndTime() + 1);
+
+        vm.warp(auction.revealEndTime() + 1);
+
+        vm.warp(auction.withdrawDeadline() + 1);
+
+        vm.prank(bidder1);
+        uint256 initialBalance = bidder1.balance;
+        console.log(initialBalance);
+        auction.forceWithdrawalUnrevealedBids(bidder1);
+        uint256 finalBalance = bidder1.balance;
+        console.log(finalBalance);
+        assertGt(finalBalance, initialBalance);
+    }
+
+    function test_forceWithdrawalUnrevealedBidsTooEarly() public {
+        vm.deal(bidder1, 20 ether);
+
+        vm.prank(bidder1);
+        uint256 value = 10 ether;
+        bool fake = false;
+        bytes32 secret = keccak256(abi.encodePacked("mySecret"));
+        bytes32 blindedBid = keccak256(abi.encodePacked(value, fake, secret));
+
+        auction.bid{value: 10 ether}(blindedBid);
+        vm.warp(auction.auctionEndTime() + 1);
+
+        vm.warp(auction.revealEndTime() + 1);
+
+        vm.prank(bidder1);
+        vm.expectRevert(blindAuction.tooEarlyToForceWithdrawal.selector);
+        auction.forceWithdrawalUnrevealedBids(bidder1);
+    }
+
+    function test_forceWithdrawalUnrevealedBidsAbuse() public {
+        vm.deal(bidder1, 20 ether);
+        vm.deal(bidder2, 20 ether);
+
+        vm.prank(bidder1);
+        uint256 value = 10 ether;
+        bool fake = false;
+        bytes32 secret = keccak256(abi.encodePacked("mySecret"));
+        bytes32 blindedBid = keccak256(abi.encodePacked(value, fake, secret));
+        auction.bid{value: 10 ether}(blindedBid);
+
+        vm.prank(bidder2);
+        uint256 value2 = 12 ether;
+        bool fake2 = false;
+        bytes32 secret2 = keccak256(abi.encodePacked("rivalSecret"));
+        bytes32 blindedBid2 = keccak256(
+            abi.encodePacked(value2, fake2, secret2)
+        );
+        auction.bid{value: 12 ether}(blindedBid2);
+
+        uint256[] memory values = new uint256[](1);
+        bool[] memory fakes = new bool[](1);
+        bytes32[] memory secrets = new bytes32[](1);
+
+        values[0] = value;
+        fakes[0] = fake;
+        secrets[0] = secret;
+
+        vm.warp(auction.auctionEndTime() + 1);
+        vm.prank(bidder1);
+        auction.revealBid(values, fakes, secrets);
+
+        values[0] = value2;
+        fakes[0] = fake2;
+        secrets[0] = secret2;
+        vm.prank(bidder2);
+        auction.revealBid(values, fakes, secrets);
+        vm.warp(auction.revealEndTime() + 1);
+
+        vm.prank(bidder1);
+        auction.withdraw();
+
+        vm.warp(auction.withdrawDeadline() + 1);
+
+        uint256 before = bidder1.balance;
+        console.log(before);
+        vm.prank(bidder1);
+        auction.forceWithdrawalUnrevealedBids(bidder1);
+        uint afterW = bidder1.balance;
+        console.log(afterW);
+
+        assertEq(
+            before,
+            afterW,
+            "forceWithdrawal() shouldn't allow double refund"
         );
     }
 }
